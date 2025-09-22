@@ -8,10 +8,10 @@
     "preview": "vite preview"
   },
   "engines": {
-    "node": "18.x",
-    "npm": "9.x"
+    "node": "22.x",
+    "npm": "10.x"
   },
-  "packageManager": "npm@9.8.1",
+  "packageManager": "npm@10.8.1",
   "dependencies": {
     "vue": "^3.3.4",
     "vue-router": "^4.2.4",
