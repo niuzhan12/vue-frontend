@@ -4,7 +4,7 @@
   "description": "仓储AS/AR软件系统前端",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "node ./node_modules/vite/bin/vite.js build",
     "preview": "vite preview"
   },
   "engines": {
