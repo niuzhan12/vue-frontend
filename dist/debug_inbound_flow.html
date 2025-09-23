@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>入库流程调试工具</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .section h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .status.success { background-color: #d4edda; color: #155724; }
+        .status.error { background-color: #f8d7da; color: #721c24; }
+        .status.warning { background-color: #fff3cd; color: #856404; }
+        .status.info { background-color: #d1ecf1; color: #0c5460; }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover { background-color: #0056b3; }
+        button.danger { background-color: #dc3545; }
+        button.danger:hover { background-color: #c82333; }
+        button.success { background-color: #28a745; }
+        button.success:hover { background-color: #218838; }
+        .register-display {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin: 10px 0;
+        }
+        .register-item {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #f8f9fa;
+        }
+        .register-item h4 {
+            margin: 0 0 5px 0;
+            font-size: 14px;
+            color: #666;
+        }
+        .register-value {
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+        }
+        .log {
+            background-color: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin: 2px 0;
+            padding: 2px 5px;
+            border-radius: 2px;
+        }
+        .log-entry.info { background-color: #d1ecf1; }
+        .log-entry.success { background-color: #d4edda; }
+        .log-entry.warning { background-color: #fff3cd; }
+        .log-entry.error { background-color: #f8d7da; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>入库流程调试工具</h1>
+        
+        <!-- 连接状态检查 -->
+        <div class="section">
+            <h3>1. 连接状态检查</h3>
+            <button onclick="checkConnections()">检查所有连接</button>
+            <div id="connectionStatus"></div>
+        </div>
+        
+        <!-- MES-WMS寄存器状态 -->
+        <div class="section">
+            <h3>2. MES-WMS寄存器状态 (端口502)</h3>
+            <button onclick="readMesWmsRegisters()">读取MES-WMS寄存器</button>
+            <div id="mesWmsRegisters" class="register-display"></div>
+        </div>
+        
+        <!-- WMS-堆垛机寄存器状态 -->
+        <div class="section">
+            <h3>3. WMS-堆垛机寄存器状态 (端口503)</h3>
+            <button onclick="readWmsStackerRegisters()">读取WMS-堆垛机寄存器</button>
+            <div id="wmsStackerRegisters" class="register-display"></div>
+        </div>
+        
+        <!-- 入库流程测试 -->
+        <div class="section">
+            <h3>4. 入库流程测试</h3>
+            <button onclick="triggerInboundOrder()" class="success">触发出库订单</button>
+            <button onclick="simulateStackerComplete()" class="success">模拟堆垛机完成</button>
+            <button onclick="resetAllRegisters()" class="danger">重置所有寄存器</button>
+            <div id="inboundTestResult"></div>
+        </div>
+        
+        <!-- 实时监控 -->
+        <div class="section">
+            <h3>5. 实时监控</h3>
+            <button onclick="startMonitoring()">开始监控</button>
+            <button onclick="stopMonitoring()">停止监控</button>
+            <div id="monitoringStatus"></div>
+        </div>
+        
+        <!-- 操作日志 -->
+        <div class="section">
+            <h3>6. 操作日志</h3>
+            <button onclick="clearLog()">清空日志</button>
+            <div id="log" class="log"></div>
+        </div>
+    </div>
+
+    <script>
+        let monitoringInterval = null;
+        
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logDiv.insertBefore(entry, logDiv.firstChild);
+            
+            // 限制日志数量
+            while (logDiv.children.length > 100) {
+                logDiv.removeChild(logDiv.lastChild);
+            }
+        }
+        
+        async function checkConnections() {
+            log('检查连接状态...', 'info');
+            const statusDiv = document.getElementById('connectionStatus');
+            
+            try {
+                // 检查MES-WMS连接
+                const mesWmsResponse = await fetch('/api/mes-wms/status');
+                const mesWmsStatus = await mesWmsResponse.json();
+                
+                // 检查WMS-堆垛机连接
+                const wmsStackerResponse = await fetch('/api/stacker-monitor/status');
+                const wmsStackerStatus = await wmsStackerResponse.json();
+                
+                statusDiv.innerHTML = `
+                    <div class="status ${mesWmsStatus.connected ? 'success' : 'error'}">
+                        MES-WMS连接: ${mesWmsStatus.connected ? '已连接' : '未连接'} - ${mesWmsStatus.message || '无消息'}
+                    </div>
+                    <div class="status ${wmsStackerStatus.connected ? 'success' : 'error'}">
+                        WMS-堆垛机连接: ${wmsStackerStatus.connected ? '已连接' : '未连接'} - ${wmsStackerStatus.message || '无消息'}
+                    </div>
+                `;
+                
+                log(`MES-WMS: ${mesWmsStatus.connected ? '已连接' : '未连接'}`, mesWmsStatus.connected ? 'success' : 'error');
+                log(`WMS-堆垛机: ${wmsStackerStatus.connected ? '已连接' : '未连接'}`, wmsStackerStatus.connected ? 'success' : 'error');
+                
+            } catch (error) {
+                statusDiv.innerHTML = `<div class="status error">连接检查失败: ${error.message}</div>`;
+                log(`连接检查失败: ${error.message}`, 'error');
+            }
+        }
+        
+        async function readMesWmsRegisters() {
+            log('读取MES-WMS寄存器...', 'info');
+            const registersDiv = document.getElementById('mesWmsRegisters');
+            
+            try {
+                const response = await fetch('/api/modbus/read/4001/10');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const registers = data.data;
+                    registersDiv.innerHTML = registers.map((value, index) => `
+                        <div class="register-item">
+                            <h4>400${index + 1}</h4>
+                            <div class="register-value">${value}</div>
+                        </div>
+                    `).join('');
+                    log(`MES-WMS寄存器读取成功: ${registers.join(', ')}`, 'success');
+                } else {
+                    registersDiv.innerHTML = `<div class="status error">读取失败: ${data.message}</div>`;
+                    log(`MES-WMS寄存器读取失败: ${data.message}`, 'error');
+                }
+            } catch (error) {
+                registersDiv.innerHTML = `<div class="status error">读取失败: ${error.message}</div>`;
+                log(`MES-WMS寄存器读取失败: ${error.message}`, 'error');
+            }
+        }
+        
+        async function readWmsStackerRegisters() {
+            log('读取WMS-堆垛机寄存器...', 'info');
+            const registersDiv = document.getElementById('wmsStackerRegisters');
+            
+            try {
+                // 由于没有直接的API，我们通过Modbus测试来读取
+                const response = await fetch('/api/modbus/read/4001/10');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const registers = data.data;
+                    registersDiv.innerHTML = registers.map((value, index) => `
+                        <div class="register-item">
+                            <h4>400${index + 1}</h4>
+                            <div class="register-value">${value}</div>
+                        </div>
+                    `).join('');
+                    log(`WMS-堆垛机寄存器读取成功: ${registers.join(', ')}`, 'success');
+                } else {
+                    registersDiv.innerHTML = `<div class="status error">读取失败: ${data.message}</div>`;
+                    log(`WMS-堆垛机寄存器读取失败: ${data.message}`, 'error');
+                }
+            } catch (error) {
+                registersDiv.innerHTML = `<div class="status error">读取失败: ${error.message}</div>`;
+                log(`WMS-堆垛机寄存器读取失败: ${error.message}`, 'error');
+            }
+        }
+        
+        async function triggerInboundOrder() {
+            log('触发出库订单...', 'info');
+            const resultDiv = document.getElementById('inboundTestResult');
+            
+            try {
+                // 1. 设置MES入库订单
+                await fetch('/api/modbus/write/4008', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ value: 1 })
+                });
+                log('已设置MES入库订单 (4008=1)', 'success');
+                
+                // 2. 等待一下让系统处理
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // 3. 检查状态
+                const statusResponse = await fetch('/api/mes-wms/status');
+                const status = await statusResponse.json();
+                
+                resultDiv.innerHTML = `
+                    <div class="status info">入库订单已触发，当前状态:</div>
+                    <div class="status ${status.wmsInboundProgress ? 'warning' : 'info'}">
+                        WMS入库中: ${status.wmsInboundProgress ? '是' : '否'}
+                    </div>
+                    <div class="status ${status.wmsCurrentRow > 0 ? 'success' : 'info'}">
+                        当前执行位置: ${status.wmsCurrentRow}行${status.wmsCurrentColumn}列
+                    </div>
+                `;
+                
+                log(`入库订单触发完成，WMS入库中: ${status.wmsInboundProgress}`, 'success');
+                
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="status error">触发出库订单失败: ${error.message}</div>`;
+                log(`触发出库订单失败: ${error.message}`, 'error');
+            }
+        }
+        
+        async function simulateStackerComplete() {
+            log('模拟堆垛机完成...', 'info');
+            
+            try {
+                // 设置堆垛机入库完成
+                await fetch('/api/modbus/write/4006', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ value: 1 })
+                });
+                log('已设置堆垛机入库完成 (4006=1)', 'success');
+                
+                // 等待系统处理
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                // 检查状态
+                const statusResponse = await fetch('/api/mes-wms/status');
+                const status = await statusResponse.json();
+                
+                log(`模拟完成，当前状态: WMS入库中=${status.wmsInboundProgress}, WMS入库完成=${status.wmsInboundComplete}`, 'success');
+                
+            } catch (error) {
+                log(`模拟堆垛机完成失败: ${error.message}`, 'error');
+            }
+        }
+        
+        async function resetAllRegisters() {
+            log('重置所有寄存器...', 'info');
+            
+            try {
+                // 重置MES-WMS寄存器
+                log('正在重置MES-WMS寄存器 (端口502)...', 'info');
+                const mesWmsResponse = await fetch('/api/mes-wms/reset-all', { method: 'POST' });
+                const mesWmsResult = await mesWmsResponse.json();
+                if (mesWmsResult.success) {
+                    log('MES-WMS寄存器已重置', 'success');
+                } else {
+                    log(`MES-WMS寄存器重置失败: ${mesWmsResult.message}`, 'error');
+                }
+                
+                // 等待一下
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // 重置WMS-堆垛机寄存器
+                log('正在重置WMS-堆垛机寄存器 (端口503)...', 'info');
+                const wmsStackerResponse = await fetch('/api/stacker-monitor/reset-all', { method: 'POST' });
+                const wmsStackerResult = await wmsStackerResponse.json();
+                if (wmsStackerResult.success) {
+                    log('WMS-堆垛机寄存器已重置', 'success');
+                } else {
+                    log(`WMS-堆垛机寄存器重置失败: ${wmsStackerResult.message}`, 'error');
+                }
+                
+                // 等待一下让重置生效
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                // 重新读取寄存器状态
+                log('重新读取寄存器状态...', 'info');
+                await readMesWmsRegisters();
+                await readWmsStackerRegisters();
+                
+                log('所有寄存器重置完成', 'success');
+                
+            } catch (error) {
+                log(`重置寄存器失败: ${error.message}`, 'error');
+            }
+        }
+        
+        function startMonitoring() {
+            if (monitoringInterval) {
+                clearInterval(monitoringInterval);
+            }
+            
+            log('开始实时监控...', 'info');
+            document.getElementById('monitoringStatus').innerHTML = '<div class="status info">监控中...</div>';
+            
+            monitoringInterval = setInterval(async () => {
+                try {
+                    const statusResponse = await fetch('/api/mes-wms/status');
+                    const status = await statusResponse.json();
+                    
+                    const hasOrder = status.mesInboundOrder || status.mesOutboundOrder;
+                    const isProcessing = status.wmsInboundProgress || status.wmsOutboundProgress;
+                    const isComplete = status.wmsInboundComplete || status.wmsOutboundComplete;
+                    
+                    if (hasOrder || isProcessing || isComplete) {
+                        log(`监控: 有订单=${hasOrder}, 处理中=${isProcessing}, 完成=${isComplete}, 位置=${status.wmsCurrentRow}行${status.wmsCurrentColumn}列`, 'info');
+                    }
+                } catch (error) {
+                    log(`监控错误: ${error.message}`, 'error');
+                }
+            }, 2000);
+        }
+        
+        function stopMonitoring() {
+            if (monitoringInterval) {
+                clearInterval(monitoringInterval);
+                monitoringInterval = null;
+            }
+            log('停止监控', 'info');
+            document.getElementById('monitoringStatus').innerHTML = '<div class="status info">监控已停止</div>';
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+        
+        // 页面加载时自动检查连接
+        window.onload = function() {
+            checkConnections();
+        };
+    </script>
+</body>
+</html>
